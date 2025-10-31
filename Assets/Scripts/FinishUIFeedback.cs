@@ -13,7 +13,7 @@ public class FinishUIFeedback : MonoBehaviour
     public AnimationCurve flashCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
     [Header("Banner")] public CanvasGroup bannerGroup; // optional: a panel with text
-    public float bannerDuration = 1.0f;
+    public float bannerDuration = 3.0f;
 
     [Header("Counter")]
     [Tooltip("Assign either TextMeshProUGUI or legacy UGUI Text. Prefer TMP.")]
@@ -58,12 +58,6 @@ public class FinishUIFeedback : MonoBehaviour
         {
             counterTextUGUI.text = s;
         }
-    }
-
-    public void SetCounter(int value)
-    {
-        _counter = Mathf.Max(0, value);
-        UpdateCounterUI();
     }
 
     public void IncrementCounter(int amount = 1)

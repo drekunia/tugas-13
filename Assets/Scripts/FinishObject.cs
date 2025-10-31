@@ -90,6 +90,7 @@ public class FinishObject : MonoBehaviour
         }
 
         uiFeedback?.Flash();
+        uiFeedback?.ShowBanner();
         uiFeedback?.IncrementCounter();
 
         Debug.Log("[FinishObject] Touched by player — feedback triggered.", this);
