@@ -1,6 +1,9 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Serialization;
+using TMPro;
 
 public class FinishUIFeedback : MonoBehaviour
 {
@@ -12,8 +15,16 @@ public class FinishUIFeedback : MonoBehaviour
     [Header("Banner")] public CanvasGroup bannerGroup; // optional: a panel with text
     public float bannerDuration = 1.0f;
 
+    [Header("Counter")]
+    [Tooltip("Assign either TextMeshProUGUI or legacy UGUI Text. Prefer TMP.")]
+    public TMP_Text counterTextTMP; // TextMeshPro (TMP) text reference
+    [FormerlySerializedAs("counterText")] public Text counterTextUGUI;    // Legacy UGUI Text (optional for backward compatibility)
+
     private Coroutine _flashRoutine;
     private Coroutine _bannerRoutine;
+
+    private int _counter = 0;
+    public int Counter => _counter;
 
     private void Awake()
     {
@@ -31,6 +42,35 @@ public class FinishUIFeedback : MonoBehaviour
             bannerGroup.ignoreParentGroups = true;
             if (!bannerGroup.gameObject.activeSelf) bannerGroup.gameObject.SetActive(true);
         }
+
+        // Initialize counter UI if assigned
+        UpdateCounterUI();
+    }
+
+    private void UpdateCounterUI()
+    {
+        string s = string.Concat("Summit: ", _counter.ToString());
+        if (counterTextTMP != null)
+        {
+            counterTextTMP.text = s;
+        }
+        if (counterTextUGUI != null)
+        {
+            counterTextUGUI.text = s;
+        }
+    }
+
+    public void SetCounter(int value)
+    {
+        _counter = Mathf.Max(0, value);
+        UpdateCounterUI();
+    }
+
+    public void IncrementCounter(int amount = 1)
+    {
+        _counter += amount;
+        if (_counter < 0) _counter = 0;
+        UpdateCounterUI();
     }
 
     public void Flash()
