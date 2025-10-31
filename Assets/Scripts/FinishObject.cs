@@ -14,6 +14,18 @@ public class FinishObject : MonoBehaviour
 
     private AudioSource _audio;
 
+    // Global gate: flash can only be retriggered after the player touches the ground plane.
+    private static bool s_FlashAvailable = true;
+
+    /// <summary>
+    /// Call this from the ground plane when the player touches it to allow the next flash.
+    /// </summary>
+    public static void UnlockFlash()
+    {
+        s_FlashAvailable = true;
+        Debug.Log("[FinishObject] Flash unlocked by ground contact.");
+    }
+
     private void Awake()
     {
         _audio = GetComponent<AudioSource>();
@@ -28,7 +40,7 @@ public class FinishObject : MonoBehaviour
 
         if (IsTopContact(collision))
         {
-            TriggerFeedback();
+            TryTriggerFeedback();
         }
     }
 
@@ -36,7 +48,7 @@ public class FinishObject : MonoBehaviour
     {
         if (!other.CompareTag(playerTag)) return;
 
-        TriggerFeedback();
+        TryTriggerFeedback();
     }
 
     private bool IsTopContact(Collision collision)
@@ -49,6 +61,18 @@ public class FinishObject : MonoBehaviour
                 return true;
         }
         return false;
+    }
+
+    private void TryTriggerFeedback()
+    {
+        if (!s_FlashAvailable)
+        {
+            // Still locked; ignore.
+            return;
+        }
+
+        s_FlashAvailable = false; // lock until ground contact
+        TriggerFeedback();
     }
 
     private void TriggerFeedback()
