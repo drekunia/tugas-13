@@ -1,3 +1,5 @@
-﻿# tugas-13
+# tugas-12 (Unity Project)
 
-Assignment from 3D Bootcamp Game Development Codelamp Indonesia (Tugas 13 : Character Control & Animation)
+Assignment from 3D Bootcamp Game Development Codelamp Indonesia (Tugas 12: Basic Gameplay Scripting in Unity)
+
+Open `Scenes/SampleScene` for playtest

@@ -1,90 +1,120 @@
 using UnityEngine;
 
+// Third-person orbit camera that follows a target (the sphere) and can be
+// controlled with the mouse. Attach to a Camera object.
 public class CameraMovement : MonoBehaviour
 {
-    [Header("Follow Target")]
-    public Transform target;                 // Character to follow
-    [Tooltip("Automatically find the player at startup if target is not set")]
-    public bool autoAssignTarget = true;
-    [Tooltip("Tag to search if Player component isn't found")]
-    public string playerTag = "Player";
-    [Tooltip("Vertical offset of the camera pivot relative to target position (e.g., character head height).")]
-    public float targetHeight = 1.6f;
+    [Header("Target")]
+    [Tooltip("Target to follow. If not set, will try to find an object with SphereMovement in the scene on Awake.")]
+    public Transform target;
 
-    [Header("Orbit Settings")]
-    public float mouseSensitivityX = 180f;   // Degrees per second for horizontal rotation per mouse unit
-    public float mouseSensitivityY = 120f;   // Degrees per second for vertical rotation per mouse unit
-    [Tooltip("Minimum vertical angle (looking down is negative).")]
-    public float minPitch = -35f;
-    [Tooltip("Maximum vertical angle (looking up).")]
-    public float maxPitch = 75f;
+    [Tooltip("Offset from target's position to look at (e.g., raise to look at head).")]
+    public Vector3 focusOffset = new Vector3(0f, 0.5f, 0f);
 
-    [Header("Zoom")]
-    public float distance = 4.5f;            // Current distance to target
-    public float minDistance = 1.5f;
-    public float maxDistance = 7.5f;
-    public float zoomSpeed = 5f;             // How fast the zoom changes per scroll unit
+    [Header("Orbit")]
+    [Tooltip("Starting distance from the target.")]
+    public float distance = 6f;
+
+    [Tooltip("Minimum and maximum zoom distances.")]
+    public float minDistance = 2f;
+    public float maxDistance = 12f;
+
+    [Tooltip("Horizontal (yaw) mouse sensitivity.")]
+    public float yawSensitivity = 200f;
+
+    [Tooltip("Vertical (pitch) mouse sensitivity.")]
+    public float pitchSensitivity = 120f;
+
+    [Tooltip("Invert vertical mouse movement.")]
+    public bool invertY = false;
+
+    [Tooltip("Clamp for the vertical angle (in degrees).")]
+    public float minPitch = -20f;
+    public float maxPitch = 80f;
+
+    [Header("Input")]
+    [Tooltip("If true, rotation occurs only while the specified mouse button is held (0=LMB,1=RMB,2=MMB).")]
+    public bool requireMouseButtonForRotate = false;
+    public int rotateMouseButton = 1; // Right mouse by default
+
+    [Tooltip("Zoom speed when using mouse scroll wheel.")]
+    public float zoomSensitivity = 4f;
 
     [Header("Smoothing")]
-    public bool smooth = true;
-    public float positionSmoothTime = 0.06f; // Lower = snappier, higher = smoother
-    public float rotationSmoothTime = 0.04f;
+    [Tooltip("Smoothing factor for following target (0 = snap).")]
+    [Range(0f, 1f)] public float followSmoothing = 0f;
 
-    [Header("Collision")]
-    public bool avoidClipping = true;
-    public LayerMask collisionLayers = ~0;   // Collide with everything by default
-    public float collisionRadius = 0.2f;     // Spherecast radius
-    public float collisionBuffer = 0.1f;     // Keep some space from obstacles
+    float _yaw;
+    float _pitch;
+    Vector3 _currentFollowPoint;
 
-    [Header("Cursor")]
-    public bool lockAndHideCursor = true;    // Lock/hide cursor for mouse-look
-
-    private float _yaw;   // Horizontal angle around Y axis
-    private float _pitch; // Vertical angle around X axis
-
-    private Vector3 _currentVelocity;        // For SmoothDamp position
-    private Quaternion _currentRot;          // For rotation smoothing
-    private float _rotVelocity;              // Not used by Quaternion.Slerp, kept for potential future use
-
-    void Start()
+    void Awake()
     {
-        if (target == null && autoAssignTarget)
+        if (target == null)
         {
-            var player = FindObjectOfType<PlayerMovement>();
-            if (player != null)
+            // Try to find the sphere automatically
+            var sphere = FindObjectOfType<SphereMovement>();
+            if (sphere != null) target = sphere.transform;
+        }
+
+        // Initialize angular values from current transform, if possible
+        if (target != null)
+        {
+            Vector3 toCam = (transform.position - (target.position + focusOffset)).normalized;
+            if (toCam.sqrMagnitude > 0.0001f)
             {
-                target = player.transform;
+                // Convert toCam to yaw/pitch
+                _pitch = Mathf.Asin(toCam.y) * Mathf.Rad2Deg; // approximate
+                float yOnPlane = Mathf.Sqrt(Mathf.Max(0f, 1f - toCam.y * toCam.y));
+                float x = toCam.x / Mathf.Max(yOnPlane, 1e-5f);
+                float z = toCam.z / Mathf.Max(yOnPlane, 1e-5f);
+                _yaw = Mathf.Atan2(x, z) * Mathf.Rad2Deg; // note: forward is +z
             }
             else
             {
-                GameObject go = null;
-                try { go = GameObject.FindGameObjectWithTag(playerTag); } catch {} // ignore if tag doesn't exist
-                if (go != null)
-                    target = go.transform;
+                _yaw = transform.eulerAngles.y;
+                _pitch = transform.eulerAngles.x;
             }
+            _pitch = Mathf.Clamp(NormalizeAngle(_pitch), minPitch, maxPitch);
+            _yaw = NormalizeAngle(_yaw);
 
-            if (target == null)
-            {
-                Debug.LogWarning($"CameraMovement: No target assigned and auto-assign failed. Assign the Target in Inspector, add {nameof(PlayerMovement)} to your player, or tag the player as \"{playerTag}\".");
-            }
+            _currentFollowPoint = target.position + focusOffset;
         }
-        else if (target == null)
+    }
+
+    void OnValidate()
+    {
+        minDistance = Mathf.Max(0.01f, minDistance);
+        maxDistance = Mathf.Max(minDistance, maxDistance);
+        distance = Mathf.Clamp(distance, minDistance, maxDistance);
+        maxPitch = Mathf.Max(minPitch + 0.01f, maxPitch);
+        rotateMouseButton = Mathf.Clamp(rotateMouseButton, 0, 2);
+        followSmoothing = Mathf.Clamp01(followSmoothing);
+    }
+
+    void Update()
+    {
+        if (target == null) return;
+
+        // Mouse rotation
+        bool canRotate = !requireMouseButtonForRotate || Input.GetMouseButton(rotateMouseButton);
+        if (canRotate)
         {
-            Debug.LogWarning("CameraMovement: No target assigned. Please set the target Transform.");
+            float mouseX = Input.GetAxis("Mouse X");
+            float mouseY = Input.GetAxis("Mouse Y");
+            _yaw += mouseX * yawSensitivity * Time.unscaledDeltaTime;
+            float ySign = invertY ? 1f : -1f;
+            _pitch += mouseY * pitchSensitivity * ySign * Time.unscaledDeltaTime;
+            _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
+            _yaw = NormalizeAngle(_yaw);
         }
 
-        Vector3 e = transform.eulerAngles;
-        _yaw = e.y;
-        float rawPitch = e.x;
-        if (rawPitch > 180f) rawPitch -= 360f;
-        _pitch = Mathf.Clamp(rawPitch, minPitch, maxPitch);
-
-        _currentRot = Quaternion.Euler(_pitch, _yaw, 0f);
-
-        if (lockAndHideCursor)
+        // Mouse wheel zoom
+        float scroll = Input.GetAxis("Mouse ScrollWheel");
+        if (Mathf.Abs(scroll) > 0.0001f)
         {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            float targetDist = distance - scroll * zoomSensitivity;
+            distance = Mathf.Clamp(targetDist, minDistance, maxDistance);
         }
     }
 
@@ -92,61 +122,30 @@ public class CameraMovement : MonoBehaviour
     {
         if (target == null) return;
 
-        float mouseX = Input.GetAxis("Mouse X");
-        float mouseY = Input.GetAxis("Mouse Y");
-
-        _yaw += mouseX * mouseSensitivityX * Time.deltaTime;
-        _pitch -= mouseY * mouseSensitivityY * Time.deltaTime;
-        _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
-
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (Mathf.Abs(scroll) > 0.0001f)
+        // Follow point (optionally smoothed)
+        Vector3 desiredFollowPoint = target.position + focusOffset;
+        if (followSmoothing > 0f)
         {
-            distance -= scroll * zoomSpeed; // positive scroll zooms in with default settings
-            distance = Mathf.Clamp(distance, minDistance, maxDistance);
-        }
-
-        Quaternion desiredRot = Quaternion.Euler(_pitch, _yaw, 0f);
-        Vector3 pivot = target.position + Vector3.up * targetHeight;
-        Vector3 desiredPos = pivot - (desiredRot * Vector3.forward) * distance;
-
-        if (avoidClipping)
-        {
-            Vector3 dir = (desiredPos - pivot);
-            float desiredDist = dir.magnitude;
-            if (desiredDist > 0.0001f)
-            {
-                dir /= desiredDist; // normalize
-                if (Physics.SphereCast(pivot, collisionRadius, dir, out RaycastHit hit, desiredDist, collisionLayers, QueryTriggerInteraction.Ignore))
-                {
-                    float safeDist = Mathf.Max(hit.distance - collisionBuffer, 0.0f);
-                    desiredPos = pivot + dir * safeDist;
-                }
-            }
-        }
-
-        if (smooth)
-        {
-            transform.position = Vector3.SmoothDamp(transform.position, desiredPos, ref _currentVelocity, positionSmoothTime);
-            _currentRot = Quaternion.Slerp(_currentRot, desiredRot, 1f - Mathf.Exp(-Time.deltaTime / Mathf.Max(0.0001f, rotationSmoothTime)));
-            transform.rotation = _currentRot;
+            _currentFollowPoint = Vector3.Lerp(_currentFollowPoint, desiredFollowPoint, 1f - Mathf.Pow(1f - followSmoothing, Time.deltaTime * 60f));
         }
         else
         {
-            transform.position = desiredPos;
-            transform.rotation = desiredRot;
+            _currentFollowPoint = desiredFollowPoint;
         }
+
+        Quaternion rot = Quaternion.Euler(_pitch, _yaw, 0f);
+        Vector3 camOffset = rot * new Vector3(0f, 0f, -distance);
+        transform.position = _currentFollowPoint + camOffset;
+        transform.rotation = rot;
+
+        // Keep looking at the follow point
+        transform.LookAt(_currentFollowPoint);
     }
 
-    public void UnlockCursor()
+    static float NormalizeAngle(float angle)
     {
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-    }
-
-    public void LockCursor()
-    {
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        while (angle > 180f) angle -= 360f;
+        while (angle < -180f) angle += 360f;
+        return angle;
     }
 }
